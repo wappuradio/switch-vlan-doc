@@ -1,8 +1,10 @@
 mod snmp_utils;
+mod output;
 use snmp_utils::{get_u32_table, get_string_table, get_optional_string_table, create_session, decode_port_list, get_raw_table};
 use std::collections::{HashSet, HashMap};
 use std::time::Duration;
 use anyhow::Result;
+use output::generate_port_table;
 
 // Q-BRIDGE-MIB OIDs
 const VLAN_STATIC_NAME: &[u32] = &[1,3,6,1,2,1,17,7,1,4,3,1,1];  // dot1qVlanStaticName
@@ -16,7 +18,7 @@ const IF_DESCR: &[u32] = &[1,3,6,1,2,1,2,2,1,2];  // ifDescr
 const IF_ALIAS: &[u32] = &[1,3,6,1,2,1,31,1,1,1,18];  // ifAlias
 
 #[derive(Debug, PartialEq, Eq)]
-struct PortRange {
+pub struct PortRange {
     first_port: u32,
     last_port: u32,
     description: String,
@@ -28,7 +30,7 @@ struct PortRange {
 fn main() -> Result<()> {
     let agent_addr = "10.1.0.23:161";
     let community = b"public";
-    let ignore_alias = true;
+    let ignore_alias = false;
     let timeout = Duration::from_secs(2);
 
     let mut sess = create_session(agent_addr, community, timeout)?;
@@ -38,7 +40,7 @@ fn main() -> Result<()> {
     // Get all tables first
     let port_indices = get_u32_table(&mut sess, IF_INDEX)?;
     let port_descriptions = get_string_table(&mut sess, IF_DESCR)?;
-    let _port_aliases = if !ignore_alias { get_optional_string_table(&mut sess, IF_ALIAS)? } else { HashMap::new() };
+    let port_aliases = if !ignore_alias { get_optional_string_table(&mut sess, IF_ALIAS)? } else { HashMap::new() };
     let _vlan_names = get_string_table(&mut sess, VLAN_STATIC_NAME)?;
     let vlan_egress_ports = get_raw_table(&mut sess, VLAN_STATIC_EGRESS_PORTS)?;
     let vlan_untagged_ports = get_raw_table(&mut sess, VLAN_STATIC_UNTAGGED_PORTS)?;
@@ -137,38 +139,9 @@ fn main() -> Result<()> {
         });
     }
 
-    // Display final port information
-    println!("\nComplete Port Information:");
-    println!("------------------------");
-    for range in port_ranges {
-        if range.first_port > 52 {
-            continue;
-        }
-        
-        let indices = if range.first_port == range.last_port {
-            format!("Port {}", range.first_port)
-        } else {
-            format!("Ports {}-{}", range.first_port, range.last_port)
-        };
-
-        // Get descriptions for first and last ports if they exist
-        let first_desc = port_descriptions.get(&range.first_port).expect("Port description not found");
-        let last_desc = port_descriptions.get(&range.last_port).expect("Port description not found");
-
-        let descriptions = if range.first_port == range.last_port {
-            first_desc.to_string()
-        } else {
-            format!("{} - {}", first_desc, last_desc)
-        };
-
-        println!("{} ({}): PVID {}", 
-            indices,
-            descriptions, 
-            range.pvid,
-        );
-        println!("  VLAN Memberships: {:?}", range.vlan_memberships);
-        println!("  Untagged VLANs: {:?}", range.untagged_vlans);
-    }
+    // Display final port information using the new table format
+    println!("\nPort Information Table:");
+    println!("{}", generate_port_table(&port_ranges, &port_descriptions, &port_aliases));
 
     Ok(())
 }
