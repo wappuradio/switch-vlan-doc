@@ -19,6 +19,7 @@ const IF_INDEX: &[u32] = &[1,3,6,1,2,1,2,2,1,1];  // ifIndex
 const IF_DESCR: &[u32] = &[1,3,6,1,2,1,2,2,1,2];  // ifDescr
 const IF_ALIAS: &[u32] = &[1,3,6,1,2,1,31,1,1,1,18];  // ifAlias
 const IF_NAME: &[u32] = &[1,3,6,1,2,1,31,1,1,1,1];  // ifName
+const IF_TYPE: &[u32] = &[1,3,6,1,2,1,2,2,1,3];  // ifType
 
 // IEEE8023-LAG-MIB OIDs
 const LAG_PORT_SELECTED: &[u32] = &[1,2,840,10006,300,43,1,2,1,1,13];  // dot3adAggPortSelectedAggID
@@ -77,6 +78,18 @@ pub struct PortRange {
     lacp_info: Option<LacpInfo>,
 }
 
+fn is_physical_port(port_type: u32, ip: &str) -> bool {
+    // Keep all ports on toimisto-sw
+    if ip.contains("toimisto-sw") {
+        return true;
+    }
+
+    // For other switches, only keep 100M and 1G ports
+    // ifType 6 = ethernetCsmacd (100M)
+    // ifType 117 = gigabitEthernet (1G)
+    port_type == 6 || port_type == 117
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let timeout = Duration::from_secs(args.timeout);
@@ -92,6 +105,7 @@ fn main() -> Result<()> {
     let port_indices = get_u32_table(&mut sess, IF_INDEX)?;
     let port_descriptions = get_string_table(&mut sess, IF_DESCR)?;
     let port_names = get_string_table(&mut sess, IF_NAME)?;
+    let port_types = get_u32_table(&mut sess, IF_TYPE)?;
     let port_aliases = if !args.ignore_alias { 
         if let Ok(aliases) = get_string_table(&mut sess, IF_ALIAS) {
             aliases.into_iter().map(|(k, v)| (k, Some(v))).collect()
@@ -146,6 +160,12 @@ fn main() -> Result<()> {
         let description = port_descriptions.get(&port_num)
             .cloned()
             .unwrap_or_default();
+        
+        // Skip non-physical ports based on ifType
+        let port_type = port_types.get(&port_num).copied().unwrap_or(0);
+        if !is_physical_port(port_type, &args.ip) {
+            continue;
+        }
         
         let alias = port_aliases.get(&port_num).cloned().flatten();
         let pvid = port_vlans.get(&port_num)
