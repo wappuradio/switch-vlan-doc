@@ -22,6 +22,7 @@ const IF_ALIAS: &[u32] = &[1,3,6,1,2,1,31,1,1,1,18];  // ifAlias
 pub struct PortConfig {
     port_num: u32,
     description: String,
+    alias: Option<String>,
     pvid: u32,
     vlan_memberships: HashSet<u32>,
     untagged_vlans: HashSet<u32>,
@@ -82,9 +83,10 @@ fn main() -> Result<()> {
 
     for port_num in port_indices.into_values() {
         let description = port_descriptions.get(&port_num)
-            .map(|s| s.clone())
+            .cloned()
             .unwrap_or_default();
         
+        let alias = port_aliases.get(&port_num).cloned().flatten();
         let pvid = port_vlans.get(&port_num)
             .copied()
             .unwrap_or(0);
@@ -111,6 +113,7 @@ fn main() -> Result<()> {
         port_configs.push(PortConfig {
             port_num,
             description,
+            alias,
             pvid,
             vlan_memberships,
             untagged_vlans,
@@ -128,7 +131,10 @@ fn main() -> Result<()> {
 
     // Helper function to check if configurations match
     let configs_match = |a: &PortConfig, b: &PortConfig| -> bool {
-        a.pvid == b.pvid && a.vlan_memberships == b.vlan_memberships && a.untagged_vlans == b.untagged_vlans
+        a.pvid == b.pvid && 
+        a.vlan_memberships == b.vlan_memberships && 
+        a.untagged_vlans == b.untagged_vlans &&
+        a.alias == b.alias
     };
 
     for config in port_configs {
@@ -177,7 +183,7 @@ fn main() -> Result<()> {
 
     // Display final port information using the new table format
     println!("\nPort Information Table:");
-    println!("{}", generate_port_table(&port_ranges, &port_descriptions, &port_aliases));
+    println!("{}", generate_port_table(&port_ranges, &port_aliases));
 
     Ok(())
 }

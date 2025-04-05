@@ -63,17 +63,17 @@ pub fn get_u32_table(session: &mut SyncSession, base_oid: &[u32]) -> Result<Hash
 }
 
 pub fn get_string_table(session: &mut SyncSession, base_oid: &[u32]) -> Result<HashMap<u32, String>> {
-    Ok(get_table_values(session, base_oid)?
+    get_table_values(session, base_oid)?
         .into_iter()
         .map(|(k, v)| match v {
             SnmpValue::Bytes(v) => Ok((k, String::from_utf8_lossy(&v).to_string())),
             SnmpValue::Integer(_) => Err(anyhow!("Expected string (OctetString) value but got integer")),
         })
-        .collect::<Result<HashMap<u32, String>>>()?)
+        .collect::<Result<HashMap<u32, String>>>()
 }
 
 pub fn get_optional_string_table(session: &mut SyncSession, base_oid: &[u32]) -> Result<HashMap<u32, Option<String>>> {
-    Ok(get_table_values(session, base_oid)?
+    get_table_values(session, base_oid)?
         .into_iter()
         .map(|(k, v)| match v {
             SnmpValue::Bytes(v) => {
@@ -82,7 +82,7 @@ pub fn get_optional_string_table(session: &mut SyncSession, base_oid: &[u32]) ->
             },
             SnmpValue::Integer(_) => Err(anyhow!("Expected string (OctetString) value but got integer")),
         })
-        .collect::<Result<HashMap<u32, Option<String>>>>()?)
+        .collect::<Result<HashMap<u32, Option<String>>>>()
 }
 
 pub fn get_raw_table(session: &mut SyncSession, base_oid: &[u32]) -> Result<HashMap<u32, Vec<u8>>> {

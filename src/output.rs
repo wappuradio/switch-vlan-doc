@@ -3,14 +3,13 @@ use crate::PortRange;
 
 pub fn generate_port_table(
     port_ranges: &[PortRange],
-    port_descriptions: &HashMap<u32, String>,
     port_aliases: &HashMap<u32, Option<String>>,
 ) -> String {
     let mut table = String::new();
     
     // Header
-    table.push_str("| Port | Description | Alias | VLAN(s) |\n");
-    table.push_str("|------|-------------|-------|----------|\n");
+    table.push_str("| Port | Alias | VLAN(s) |\n");
+    table.push_str("|------|-------|----------|\n");
 
     for range in port_ranges {
         if range.first_port > 52 {
@@ -22,27 +21,6 @@ pub fn generate_port_table(
             format!("{}", range.first_port)
         } else {
             format!("{}-{}", range.first_port, range.last_port)
-        };
-
-        // Description (only if different from port number)
-        let description = if range.first_port == range.last_port {
-            let port_desc = port_descriptions.get(&range.first_port)
-                .expect("Port description not found");
-            if port_desc == &port {
-                String::new()
-            } else {
-                port_desc.clone()
-            }
-        } else {
-            let first_desc = port_descriptions.get(&range.first_port)
-                .expect("Port description not found");
-            let last_desc = port_descriptions.get(&range.last_port)
-                .expect("Port description not found");
-            if first_desc == last_desc {
-                first_desc.clone()
-            } else {
-                format!("{}-{}", first_desc, last_desc)
-            }
         };
 
         // Alias (if available)
@@ -76,9 +54,8 @@ pub fn generate_port_table(
         let vlans = vlan_info.join(" ");
 
         // Add row to table
-        table.push_str(&format!("| {} | {} | {} | {} |\n",
+        table.push_str(&format!("| {} | {} | {} |\n",
             port,
-            description,
             alias,
             vlans
         ));
