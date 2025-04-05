@@ -4,6 +4,7 @@ use crate::PortRange;
 pub fn generate_port_table(
     port_ranges: &[PortRange],
     port_aliases: &HashMap<u32, Option<String>>,
+    vlan_names: &HashMap<u32, String>,
 ) -> String {
     let mut table = String::new();
     
@@ -43,16 +44,49 @@ pub fn generate_port_table(
         // VLAN information
         let mut vlan_info = Vec::new();
         if !range.vlan_memberships.is_empty() {
-            vlan_info.push(format!("Tagged:{:?}", range.vlan_memberships));
+            let mut tagged_vlans: Vec<u32> = range.vlan_memberships.iter().copied().collect();
+            tagged_vlans.sort_unstable();
+            let tagged_vlans: Vec<String> = tagged_vlans.iter()
+                .map(|&vlan_id| {
+                    if vlan_id == 1 {
+                        vlan_id.to_string()
+                    } else if let Some(name) = vlan_names.get(&vlan_id) {
+                        format!("{} ({})", name, vlan_id)
+                    } else {
+                        vlan_id.to_string()
+                    }
+                })
+                .collect();
+            vlan_info.push(format!("Tagged:[{}]", tagged_vlans.join(", ")));
         }
         if !range.untagged_vlans.is_empty() {
-            vlan_info.push(format!("Untagged:{:?}", range.untagged_vlans));
+            let mut untagged_vlans: Vec<u32> = range.untagged_vlans.iter().copied().collect();
+            untagged_vlans.sort_unstable();
+            let untagged_vlans: Vec<String> = untagged_vlans.iter()
+                .map(|&vlan_id| {
+                    if vlan_id == 1 {
+                        vlan_id.to_string()
+                    } else if let Some(name) = vlan_names.get(&vlan_id) {
+                        format!("{} ({})", name, vlan_id)
+                    } else {
+                        vlan_id.to_string()
+                    }
+                })
+                .collect();
+            vlan_info.push(format!("Untagged:[{}]", untagged_vlans.join(", ")));
         }
         let vlans = if range.untagged_vlans.len() == 1 
             && range.vlan_memberships.len() <= 1  // Allow the same VLAN to be tagged and untagged
             && range.pvid == *range.untagged_vlans.iter().next().unwrap() {
             // If only one untagged VLAN exists and PVID matches it
-            range.untagged_vlans.iter().next().unwrap().to_string()
+            let vlan_id = range.untagged_vlans.iter().next().unwrap();
+            if *vlan_id == 1 {
+                vlan_id.to_string()
+            } else if let Some(name) = vlan_names.get(vlan_id) {
+                format!("{} ({})", name, vlan_id)
+            } else {
+                vlan_id.to_string()
+            }
         } else {
             vlan_info.join(" ")
         };

@@ -73,7 +73,7 @@ fn main() -> Result<()> {
     let port_indices = get_u32_table(&mut sess, IF_INDEX)?;
     let port_descriptions = get_string_table(&mut sess, IF_DESCR)?;
     let port_aliases = if !args.ignore_alias { get_optional_string_table(&mut sess, IF_ALIAS)? } else { HashMap::new() };
-    let _vlan_names = get_string_table(&mut sess, VLAN_STATIC_NAME)?;
+    let vlan_names = get_string_table(&mut sess, VLAN_STATIC_NAME)?;
     let vlan_egress_ports = get_raw_table(&mut sess, VLAN_STATIC_EGRESS_PORTS)?;
     let vlan_untagged_ports = get_raw_table(&mut sess, VLAN_STATIC_UNTAGGED_PORTS)?;
     let port_vlans = get_u32_table(&mut sess, PORT_VLAN_TABLE)?;
@@ -183,7 +183,7 @@ fn main() -> Result<()> {
 
     // Display final port information using the new table format
     println!("\nPort Information Table:");
-    println!("{}", generate_port_table(&port_ranges, &port_aliases));
+    println!("{}", generate_port_table(&port_ranges, &port_aliases, &vlan_names));
 
     Ok(())
 }
