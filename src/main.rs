@@ -1,7 +1,7 @@
 mod snmp_utils;
 mod output;
 mod html_output;
-use snmp_utils::{get_u32_table, get_string_table, get_optional_string_table, create_session, decode_port_list, get_raw_table};
+use snmp_utils::{get_u32_table, get_string_table, create_session, decode_port_list, get_raw_table};
 use std::collections::{HashSet, HashMap};
 use std::time::Duration;
 use anyhow::Result;
@@ -18,6 +18,11 @@ const PORT_VLAN_TABLE: &[u32] = &[1,3,6,1,2,1,17,7,1,4,5,1,1];  // dot1qPvid
 const IF_INDEX: &[u32] = &[1,3,6,1,2,1,2,2,1,1];  // ifIndex
 const IF_DESCR: &[u32] = &[1,3,6,1,2,1,2,2,1,2];  // ifDescr
 const IF_ALIAS: &[u32] = &[1,3,6,1,2,1,31,1,1,1,18];  // ifAlias
+const IF_NAME: &[u32] = &[1,3,6,1,2,1,31,1,1,1,1];  // ifName
+
+// IEEE8023-LAG-MIB OIDs
+const LAG_PORT_SELECTED: &[u32] = &[1,2,840,10006,300,43,1,2,1,1,13];  // dot3adAggPortSelectedAggID
+const LAG_AGG_NAME: &[u32] = &[1,3,6,1,2,1,31,1,1,1,1];  // ifName for LACP interfaces
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct PortConfig {
@@ -27,6 +32,14 @@ pub struct PortConfig {
     pvid: u32,
     vlan_memberships: HashSet<u32>,
     untagged_vlans: HashSet<u32>,
+    lacp_info: Option<LacpInfo>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct LacpInfo {
+    selected_agg_id: u32,
+    agg_name: Option<String>,
+    agg_vlans: Option<(HashSet<u32>, HashSet<u32>)>, // (tagged, untagged)
 }
 
 #[derive(Parser, Debug)]
@@ -61,6 +74,7 @@ pub struct PortRange {
     pvid: u32,
     vlan_memberships: HashSet<u32>,
     untagged_vlans: HashSet<u32>,
+    lacp_info: Option<LacpInfo>,
 }
 
 fn main() -> Result<()> {
@@ -77,11 +91,53 @@ fn main() -> Result<()> {
     // Get all tables first
     let port_indices = get_u32_table(&mut sess, IF_INDEX)?;
     let port_descriptions = get_string_table(&mut sess, IF_DESCR)?;
-    let port_aliases = if !args.ignore_alias { get_optional_string_table(&mut sess, IF_ALIAS)? } else { HashMap::new() };
+    let port_names = get_string_table(&mut sess, IF_NAME)?;
+    let port_aliases = if !args.ignore_alias { 
+        if let Ok(aliases) = get_string_table(&mut sess, IF_ALIAS) {
+            aliases.into_iter().map(|(k, v)| (k, Some(v))).collect()
+        } else {
+            port_names.into_iter().map(|(k, v)| (k, Some(v))).collect()
+        }
+    } else { 
+        HashMap::new() 
+    };
     let vlan_names = get_string_table(&mut sess, VLAN_STATIC_NAME)?;
     let vlan_egress_ports = get_raw_table(&mut sess, VLAN_STATIC_EGRESS_PORTS)?;
     let vlan_untagged_ports = get_raw_table(&mut sess, VLAN_STATIC_UNTAGGED_PORTS)?;
     let port_vlans = get_u32_table(&mut sess, PORT_VLAN_TABLE)?;
+
+    // Get LACP information
+    let lag_selected_agg_ids = get_u32_table(&mut sess, LAG_PORT_SELECTED)?;
+    let lag_agg_names = get_string_table(&mut sess, LAG_AGG_NAME)?;
+
+    // Get VLAN information for LACP interfaces
+    let mut lag_vlan_info: HashMap<u32, (HashSet<u32>, HashSet<u32>)> = HashMap::new();
+    for agg_id in lag_selected_agg_ids.values() {
+        if *agg_id > 0 {
+            let mut tagged = HashSet::new();
+            let mut untagged = HashSet::new();
+            
+            // Check VLAN memberships for the LACP interface using the LAG interface number
+            for (vlan_id, ports_data) in &vlan_egress_ports {
+                let port_list = decode_port_list(ports_data);
+                if port_list.split(", ").any(|p| p.parse::<u32>().map_or(false, |p| p == *agg_id)) {
+                    tagged.insert(*vlan_id);
+                }
+            }
+
+            // Check untagged VLANs for the LACP interface using the LAG interface number
+            for (vlan_id, ports_data) in &vlan_untagged_ports {
+                let port_list = decode_port_list(ports_data);
+                if port_list.split(", ").any(|p| p.parse::<u32>().map_or(false, |p| p == *agg_id)) {
+                    untagged.insert(*vlan_id);
+                }
+            }
+
+            if !tagged.is_empty() || !untagged.is_empty() {
+                lag_vlan_info.insert(*agg_id, (tagged, untagged));
+            }
+        }
+    }
 
     // First, collect all individual port configurations
     let mut port_configs: Vec<PortConfig> = Vec::new();
@@ -115,6 +171,31 @@ fn main() -> Result<()> {
             }
         }
 
+        // Check if port is part of an LACP trunk
+        let lacp_info = if let Some(&selected_agg_id) = lag_selected_agg_ids.get(&port_num) {
+            if selected_agg_id > 0 {
+                let agg_name = lag_agg_names.get(&selected_agg_id).cloned();
+                let agg_vlans = lag_vlan_info.get(&selected_agg_id).cloned();
+                Some(LacpInfo {
+                    selected_agg_id,
+                    agg_name,
+                    agg_vlans,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // If this port is part of an LACP trunk with VLAN info, use that instead
+        if let Some(lacp_info) = &lacp_info {
+            if let Some((tagged, untagged)) = &lacp_info.agg_vlans {
+                vlan_memberships = tagged.clone();
+                untagged_vlans = untagged.clone();
+            }
+        }
+
         port_configs.push(PortConfig {
             port_num,
             description,
@@ -122,6 +203,7 @@ fn main() -> Result<()> {
             pvid,
             vlan_memberships,
             untagged_vlans,
+            lacp_info,
         });
     }
 
@@ -139,7 +221,8 @@ fn main() -> Result<()> {
         a.pvid == b.pvid && 
         a.vlan_memberships == b.vlan_memberships && 
         a.untagged_vlans == b.untagged_vlans &&
-        a.alias == b.alias
+        a.alias == b.alias &&
+        a.lacp_info == b.lacp_info
     };
 
     for config in port_configs {
@@ -159,6 +242,7 @@ fn main() -> Result<()> {
                             pvid: current.pvid,
                             vlan_memberships: current.vlan_memberships,
                             untagged_vlans: current.untagged_vlans,
+                            lacp_info: current.lacp_info,
                         });
                     }
                     current_config = Some(config);
@@ -183,6 +267,7 @@ fn main() -> Result<()> {
             pvid: current.pvid,
             vlan_memberships: current.vlan_memberships,
             untagged_vlans: current.untagged_vlans,
+            lacp_info: current.lacp_info,
         });
     }
 

@@ -27,8 +27,8 @@ fn generate_markdown_table(
     let mut table = String::new();
     
     // Header
-    table.push_str("| Port | Alias | VLAN(s) |\n");
-    table.push_str("|------|-------|----------|\n");
+    table.push_str("| Port | Alias | VLAN(s) | LACP |\n");
+    table.push_str("|------|-------|----------|------|\n");
 
     for range in port_ranges {
         if range.first_port > 52 {
@@ -109,11 +109,20 @@ fn generate_markdown_table(
             vlan_info.join(" ")
         };
 
+        // LACP information
+        let lacp = if let Some(lacp_info) = &range.lacp_info {
+            let agg_name = lacp_info.agg_name.as_deref().unwrap_or("Unknown");
+            agg_name.to_string()
+        } else {
+            String::new()
+        };
+
         // Add row to table
-        table.push_str(&format!("| {} | {} | {} |\n",
+        table.push_str(&format!("| {} | {} | {} | {} |\n",
             port,
             alias,
-            vlans
+            vlans,
+            lacp
         ));
     }
 

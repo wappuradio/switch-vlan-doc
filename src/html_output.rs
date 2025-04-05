@@ -95,6 +95,18 @@ pub fn generate_port_table(
     .port-table tr.multi-tagged.even:hover {
         background-color: #ffd9b3;
     }
+    .port-table tr.lacp {
+        background-color: #e6e6ff;
+    }
+    .port-table tr.lacp:hover {
+        background-color: #d9d9ff;
+    }
+    .port-table tr.lacp.even {
+        background-color: #d9d9ff;
+    }
+    .port-table tr.lacp.even:hover {
+        background-color: #ccccff;
+    }
 </style>
 <div class="device-header">
     <h1>Switch Port Configuration</h1>
@@ -109,6 +121,7 @@ pub fn generate_port_table(
             <th>Port</th>
             <th>Alias</th>
             <th>VLAN(s)</th>
+            <th>LACP</th>
         </tr>
     </thead>
     <tbody>"#);
@@ -192,6 +205,14 @@ pub fn generate_port_table(
             vlan_info.join(" ")
         };
 
+        // LACP information
+        let lacp = if let Some(lacp_info) = &range.lacp_info {
+            let agg_name = lacp_info.agg_name.as_deref().unwrap_or("Unknown");
+            agg_name.to_string()
+        } else {
+            String::new()
+        };
+
         // Determine row classes
         let mut row_classes = Vec::new();
         
@@ -214,6 +235,11 @@ pub fn generate_port_table(
         if range.vlan_memberships.len() > 1 {
             row_classes.push("multi-tagged");
         }
+
+        // LACP class
+        if range.lacp_info.is_some() {
+            row_classes.push("lacp");
+        }
         
         // Even/odd row styling
         if index % 2 == 1 {
@@ -231,11 +257,13 @@ pub fn generate_port_table(
             <td>{}</td>
             <td>{}</td>
             <td>{}</td>
+            <td>{}</td>
         </tr>"#,
             class_str,
             port,
             alias,
-            vlans
+            vlans,
+            lacp
         ));
     }
 
