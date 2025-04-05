@@ -5,6 +5,7 @@ use std::collections::{HashSet, HashMap};
 use std::time::Duration;
 use anyhow::Result;
 use output::generate_port_table;
+use clap::Parser;
 
 // Q-BRIDGE-MIB OIDs
 const VLAN_STATIC_NAME: &[u32] = &[1,3,6,1,2,1,17,7,1,4,3,1,1];  // dot1qVlanStaticName
@@ -27,20 +28,41 @@ pub struct PortRange {
     untagged_vlans: HashSet<u32>,
 }
 
-fn main() -> Result<()> {
-    let agent_addr = "10.1.0.23:161";
-    let community = b"public";
-    let ignore_alias = false;
-    let timeout = Duration::from_secs(2);
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// IP address of the SNMP agent (e.g., 10.1.0.23)
+    #[arg(short, long)]
+    ip: String,
 
-    let mut sess = create_session(agent_addr, community, timeout)?;
+    /// SNMP community string
+    #[arg(short, long, default_value = "public")]
+    community: String,
+
+    /// Ignore interface aliases
+    #[arg(short = 'n', long)]
+    ignore_alias: bool,
+
+    /// SNMP timeout in seconds
+    #[arg(short, long, default_value = "2")]
+    timeout: u64,
+}
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+    let timeout = Duration::from_secs(args.timeout);
+    
+    // Validate IP address and construct agent address
+    let agent_addr = format!("{}:161", args.ip);
+
+    let mut sess = create_session(&agent_addr, args.community.as_bytes(), timeout)?;
     
     println!("Fetching VLAN information...\n");
 
     // Get all tables first
     let port_indices = get_u32_table(&mut sess, IF_INDEX)?;
     let port_descriptions = get_string_table(&mut sess, IF_DESCR)?;
-    let port_aliases = if !ignore_alias { get_optional_string_table(&mut sess, IF_ALIAS)? } else { HashMap::new() };
+    let port_aliases = if !args.ignore_alias { get_optional_string_table(&mut sess, IF_ALIAS)? } else { HashMap::new() };
     let _vlan_names = get_string_table(&mut sess, VLAN_STATIC_NAME)?;
     let vlan_egress_ports = get_raw_table(&mut sess, VLAN_STATIC_EGRESS_PORTS)?;
     let vlan_untagged_ports = get_raw_table(&mut sess, VLAN_STATIC_UNTAGGED_PORTS)?;
