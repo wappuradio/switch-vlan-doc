@@ -72,7 +72,7 @@ fn main() -> Result<()> {
 
     let mut sess = create_session(&agent_addr, args.community.as_bytes(), timeout)?;
     
-    println!("Fetching VLAN information...\n");
+    eprintln!("Fetching VLAN information...\n");
 
     // Get all tables first
     let port_indices = get_u32_table(&mut sess, IF_INDEX)?;
@@ -187,7 +187,6 @@ fn main() -> Result<()> {
     }
 
     // Display final port information using the new table format
-    println!("\nPort Information Table:");
     let output_format = match args.format.to_lowercase().as_str() {
         "html" => OutputFormat::Html,
         "markdown" => OutputFormat::Markdown,
@@ -196,7 +195,18 @@ fn main() -> Result<()> {
             OutputFormat::Markdown
         }
     };
-    println!("{}", generate_port_table(&port_ranges, &port_aliases, &vlan_names, output_format));
+
+    let output = match output_format {
+        OutputFormat::Html => generate_port_table(&port_ranges, &port_aliases, &vlan_names, output_format, &args.ip),
+        OutputFormat::Markdown => {
+            let mut output = String::new();
+            output.push_str("\nPort Information Table:\n");
+            output.push_str(&generate_port_table(&port_ranges, &port_aliases, &vlan_names, output_format, ""));
+            output
+        }
+    };
+
+    println!("{}", output);
 
     Ok(())
 }

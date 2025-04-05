@@ -5,25 +5,49 @@ pub fn generate_port_table(
     port_ranges: &[PortRange],
     port_aliases: &HashMap<u32, Option<String>>,
     vlan_names: &HashMap<u32, String>,
+    ip_address: &str,
 ) -> String {
     let mut table = String::new();
     
     // Start HTML with CSS styling
     table.push_str(r#"<style>
+    body {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+        font-family: Arial, sans-serif;
+    }
+    .device-header {
+        margin-bottom: 30px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #eee;
+    }
+    .device-header h1 {
+        margin: 0;
+        color: #333;
+        font-size: 24px;
+    }
+    .device-header h2 {
+        margin: 5px 0 0;
+        color: #666;
+        font-size: 18px;
+    }
     .port-table {
         border-collapse: collapse;
         width: 100%;
         margin: 20px 0;
-        font-family: Arial, sans-serif;
+        background-color: white;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
     .port-table th, .port-table td {
         border: 1px solid #ddd;
-        padding: 8px;
+        padding: 12px;
         text-align: left;
     }
     .port-table th {
         background-color: #f2f2f2;
         font-weight: bold;
+        color: #333;
     }
     .port-table tr:nth-child(even) {
         background-color: #f9f9f9;
@@ -31,7 +55,54 @@ pub fn generate_port_table(
     .port-table tr:hover {
         background-color: #f5f5f5;
     }
+    .port-table tr.multi-port td {
+        padding-top: 24px;
+        padding-bottom: 24px;
+    }
+    .port-table tr.vlan-10 {
+        background-color: #e6f3ff;
+    }
+    .port-table tr.vlan-10:hover {
+        background-color: #d9edff;
+    }
+    .port-table tr.vlan-531 {
+        background-color: #e6ffe6;
+    }
+    .port-table tr.vlan-531:hover {
+        background-color: #d9ffd9;
+    }
+    .port-table tr.vlan-10.even {
+        background-color: #d9edff;
+    }
+    .port-table tr.vlan-10.even:hover {
+        background-color: #cce7ff;
+    }
+    .port-table tr.vlan-531.even {
+        background-color: #d9ffd9;
+    }
+    .port-table tr.vlan-531.even:hover {
+        background-color: #ccffcc;
+    }
+    .port-table tr.multi-tagged {
+        background-color: #fff3e6;
+    }
+    .port-table tr.multi-tagged:hover {
+        background-color: #ffe6cc;
+    }
+    .port-table tr.multi-tagged.even {
+        background-color: #ffe6cc;
+    }
+    .port-table tr.multi-tagged.even:hover {
+        background-color: #ffd9b3;
+    }
 </style>
+<div class="device-header">
+    <h1>Switch Port Configuration</h1>
+    <h2>Device: "#);
+
+    table.push_str(ip_address);
+    table.push_str(r#"</h2>
+</div>
 <table class="port-table">
     <thead>
         <tr>
@@ -42,7 +113,7 @@ pub fn generate_port_table(
     </thead>
     <tbody>"#);
 
-    for range in port_ranges {
+    for (index, range) in port_ranges.iter().enumerate() {
         if range.first_port > 52 {
             continue;
         }
@@ -121,12 +192,47 @@ pub fn generate_port_table(
             vlan_info.join(" ")
         };
 
-        // Add row to table
-        table.push_str(&format!(r#"        <tr>
+        // Determine row classes
+        let mut row_classes = Vec::new();
+        
+        // Multi-port class
+        if range.first_port != range.last_port {
+            row_classes.push("multi-port");
+        }
+        
+        // VLAN-specific classes
+        if range.untagged_vlans.len() == 1 {
+            let untagged_vlan = *range.untagged_vlans.iter().next().unwrap();
+            if untagged_vlan == 10 {
+                row_classes.push("vlan-10");
+            } else if untagged_vlan == 531 {
+                row_classes.push("vlan-531");
+            }
+        }
+
+        // Multi-tagged class
+        if range.vlan_memberships.len() > 1 {
+            row_classes.push("multi-tagged");
+        }
+        
+        // Even/odd row styling
+        if index % 2 == 1 {
+            row_classes.push("even");
+        }
+
+        // Add row to table with classes
+        let class_str = if !row_classes.is_empty() {
+            format!(" class=\"{}\"", row_classes.join(" "))
+        } else {
+            String::new()
+        };
+
+        table.push_str(&format!(r#"        <tr{}>
             <td>{}</td>
             <td>{}</td>
             <td>{}</td>
         </tr>"#,
+            class_str,
             port,
             alias,
             vlans

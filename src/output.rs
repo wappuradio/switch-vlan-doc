@@ -11,10 +11,11 @@ pub fn generate_port_table(
     port_aliases: &HashMap<u32, Option<String>>,
     vlan_names: &HashMap<u32, String>,
     format: OutputFormat,
+    ip_address: &str,
 ) -> String {
     match format {
         OutputFormat::Markdown => generate_markdown_table(port_ranges, port_aliases, vlan_names),
-        OutputFormat::Html => crate::html_output::generate_port_table(port_ranges, port_aliases, vlan_names),
+        OutputFormat::Html => crate::html_output::generate_port_table(port_ranges, port_aliases, vlan_names, ip_address),
     }
 }
 
