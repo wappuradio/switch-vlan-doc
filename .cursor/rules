@@ -25,6 +25,6 @@ Refer to the Rust book and crate documentation for in-depth information on patte
   
 
 Validation
-- When running cargo commands, first unset ARGV0 like: `unset ARGV0 && cargo build`
 - You must verify that the code passes clippy.
 - You may run the code to test it works
+- IMPORTANT: You must not ask if other changes should be made before the code has passed clippy without warnings!
