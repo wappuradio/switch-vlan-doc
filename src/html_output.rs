@@ -1,33 +1,46 @@
 use std::collections::HashMap;
 use crate::PortRange;
 
-pub enum OutputFormat {
-    Markdown,
-    Html,
-}
-
 pub fn generate_port_table(
-    port_ranges: &[PortRange],
-    port_aliases: &HashMap<u32, Option<String>>,
-    vlan_names: &HashMap<u32, String>,
-    format: OutputFormat,
-) -> String {
-    match format {
-        OutputFormat::Markdown => generate_markdown_table(port_ranges, port_aliases, vlan_names),
-        OutputFormat::Html => crate::html_output::generate_port_table(port_ranges, port_aliases, vlan_names),
-    }
-}
-
-fn generate_markdown_table(
     port_ranges: &[PortRange],
     port_aliases: &HashMap<u32, Option<String>>,
     vlan_names: &HashMap<u32, String>,
 ) -> String {
     let mut table = String::new();
     
-    // Header
-    table.push_str("| Port | Alias | VLAN(s) |\n");
-    table.push_str("|------|-------|----------|\n");
+    // Start HTML with CSS styling
+    table.push_str(r#"<style>
+    .port-table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 20px 0;
+        font-family: Arial, sans-serif;
+    }
+    .port-table th, .port-table td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+    }
+    .port-table th {
+        background-color: #f2f2f2;
+        font-weight: bold;
+    }
+    .port-table tr:nth-child(even) {
+        background-color: #f9f9f9;
+    }
+    .port-table tr:hover {
+        background-color: #f5f5f5;
+    }
+</style>
+<table class="port-table">
+    <thead>
+        <tr>
+            <th>Port</th>
+            <th>Alias</th>
+            <th>VLAN(s)</th>
+        </tr>
+    </thead>
+    <tbody>"#);
 
     for range in port_ranges {
         if range.first_port > 52 {
@@ -109,12 +122,20 @@ fn generate_markdown_table(
         };
 
         // Add row to table
-        table.push_str(&format!("| {} | {} | {} |\n",
+        table.push_str(&format!(r#"        <tr>
+            <td>{}</td>
+            <td>{}</td>
+            <td>{}</td>
+        </tr>"#,
             port,
             alias,
             vlans
         ));
     }
+
+    // Close HTML table
+    table.push_str(r#"    </tbody>
+</table>"#);
 
     table
 } 

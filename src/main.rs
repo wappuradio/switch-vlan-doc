@@ -1,10 +1,11 @@
 mod snmp_utils;
 mod output;
+mod html_output;
 use snmp_utils::{get_u32_table, get_string_table, get_optional_string_table, create_session, decode_port_list, get_raw_table};
 use std::collections::{HashSet, HashMap};
 use std::time::Duration;
 use anyhow::Result;
-use output::generate_port_table;
+use output::{generate_port_table, OutputFormat};
 use clap::Parser;
 
 // Q-BRIDGE-MIB OIDs
@@ -46,6 +47,10 @@ struct Args {
     /// SNMP timeout in seconds
     #[arg(short, long, default_value = "2")]
     timeout: u64,
+
+    /// Output format (markdown or html)
+    #[arg(short, long, default_value = "markdown")]
+    format: String,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -183,7 +188,15 @@ fn main() -> Result<()> {
 
     // Display final port information using the new table format
     println!("\nPort Information Table:");
-    println!("{}", generate_port_table(&port_ranges, &port_aliases, &vlan_names));
+    let output_format = match args.format.to_lowercase().as_str() {
+        "html" => OutputFormat::Html,
+        "markdown" => OutputFormat::Markdown,
+        _ => {
+            eprintln!("Invalid output format. Using markdown.");
+            OutputFormat::Markdown
+        }
+    };
+    println!("{}", generate_port_table(&port_ranges, &port_aliases, &vlan_names, output_format));
 
     Ok(())
 }
