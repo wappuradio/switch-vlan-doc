@@ -42,16 +42,20 @@ pub fn generate_port_table(
 
         // VLAN information
         let mut vlan_info = Vec::new();
-        if range.pvid != 0 {
-            vlan_info.push(format!("PVID:{}", range.pvid));
-        }
         if !range.vlan_memberships.is_empty() {
             vlan_info.push(format!("Tagged:{:?}", range.vlan_memberships));
         }
         if !range.untagged_vlans.is_empty() {
             vlan_info.push(format!("Untagged:{:?}", range.untagged_vlans));
         }
-        let vlans = vlan_info.join(" ");
+        let vlans = if range.untagged_vlans.len() == 1 
+            && range.vlan_memberships.len() <= 1  // Allow the same VLAN to be tagged and untagged
+            && range.pvid == *range.untagged_vlans.iter().next().unwrap() {
+            // If only one untagged VLAN exists and PVID matches it
+            range.untagged_vlans.iter().next().unwrap().to_string()
+        } else {
+            vlan_info.join(" ")
+        };
 
         // Add row to table
         table.push_str(&format!("| {} | {} | {} |\n",
