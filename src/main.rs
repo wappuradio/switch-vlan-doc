@@ -19,9 +19,8 @@ const IF_DESCR: &[u32] = &[1,3,6,1,2,1,2,2,1,2];  // ifDescr
 const IF_ALIAS: &[u32] = &[1,3,6,1,2,1,31,1,1,1,18];  // ifAlias
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct PortRange {
-    first_port: u32,
-    last_port: u32,
+pub struct PortConfig {
+    port_num: u32,
     description: String,
     pvid: u32,
     vlan_memberships: HashSet<u32>,
@@ -48,6 +47,16 @@ struct Args {
     timeout: u64,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct PortRange {
+    first_port: u32,
+    last_port: u32,
+    description: String,
+    pvid: u32,
+    vlan_memberships: HashSet<u32>,
+    untagged_vlans: HashSet<u32>,
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let timeout = Duration::from_secs(args.timeout);
@@ -69,7 +78,7 @@ fn main() -> Result<()> {
     let port_vlans = get_u32_table(&mut sess, PORT_VLAN_TABLE)?;
 
     // First, collect all individual port configurations
-    let mut port_configs: Vec<(u32, String, u32, HashSet<u32>, HashSet<u32>)> = Vec::new();
+    let mut port_configs: Vec<PortConfig> = Vec::new();
 
     for port_num in port_indices.into_values() {
         let description = port_descriptions.get(&port_num)
@@ -99,26 +108,31 @@ fn main() -> Result<()> {
             }
         }
 
-        port_configs.push((port_num, description, pvid, vlan_memberships, untagged_vlans));
+        port_configs.push(PortConfig {
+            port_num,
+            description,
+            pvid,
+            vlan_memberships,
+            untagged_vlans,
+        });
     }
 
     // Sort by port number to ensure ranges are contiguous
-    port_configs.sort_by_key(|(port_num, _, _, _, _)| *port_num);
+    port_configs.sort_by_key(|config| config.port_num);
 
     // Group ports with identical configuration into ranges
     let mut port_ranges: Vec<PortRange> = Vec::new();
-    let mut current_config: Option<(u32, String, u32, HashSet<u32>, HashSet<u32>)> = None;
+    let mut current_config: Option<PortConfig> = None;
     let mut current_start: u32 = 0;
     let mut current_end: u32 = 0;
 
     // Helper function to check if configurations match
-    let configs_match = |a: &(u32, String, u32, HashSet<u32>, HashSet<u32>), 
-                        b: &(u32, String, u32, HashSet<u32>, HashSet<u32>)| -> bool {
-        a.2 == b.2 && a.3 == b.3 && a.4 == b.4  // Compare only PVID and VLANs
+    let configs_match = |a: &PortConfig, b: &PortConfig| -> bool {
+        a.pvid == b.pvid && a.vlan_memberships == b.vlan_memberships && a.untagged_vlans == b.untagged_vlans
     };
 
     for config in port_configs {
-        let port_num = config.0;
+        let port_num = config.port_num;
         match &current_config {
             Some(current) => {
                 if configs_match(current, &config) && port_num == current_end + 1 {
@@ -126,14 +140,14 @@ fn main() -> Result<()> {
                     current_end = port_num;
                 } else {
                     // End current range and start new one
-                    if let Some((_, desc, pvid, memberships, untagged)) = current_config.take() {
+                    if let Some(current) = current_config.take() {
                         port_ranges.push(PortRange {
                             first_port: current_start,
                             last_port: current_end,
-                            description: desc,
-                            pvid,
-                            vlan_memberships: memberships,
-                            untagged_vlans: untagged,
+                            description: current.description,
+                            pvid: current.pvid,
+                            vlan_memberships: current.vlan_memberships,
+                            untagged_vlans: current.untagged_vlans,
                         });
                     }
                     current_config = Some(config);
@@ -150,14 +164,14 @@ fn main() -> Result<()> {
     }
 
     // Add the last range if it exists
-    if let Some((_, desc, pvid, memberships, untagged)) = current_config {
+    if let Some(current) = current_config {
         port_ranges.push(PortRange {
             first_port: current_start,
             last_port: current_end,
-            description: desc,
-            pvid,
-            vlan_memberships: memberships,
-            untagged_vlans: untagged,
+            description: current.description,
+            pvid: current.pvid,
+            vlan_memberships: current.vlan_memberships,
+            untagged_vlans: current.untagged_vlans,
         });
     }
 
