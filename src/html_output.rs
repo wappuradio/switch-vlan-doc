@@ -3,7 +3,6 @@ use crate::PortRange;
 
 pub fn generate_port_table(
     port_ranges: &[PortRange],
-    port_aliases: &HashMap<u32, Option<String>>,
     vlan_names: &HashMap<u32, String>,
     ip_address: &str,
 ) -> String {
@@ -139,21 +138,7 @@ pub fn generate_port_table(
         };
 
         // Alias (if available)
-        let alias = if range.first_port == range.last_port {
-            port_aliases.get(&range.first_port)
-                .and_then(|s| s.clone())
-                .unwrap_or_default()
-        } else {
-            let first_alias = port_aliases.get(&range.first_port);
-            let last_alias = port_aliases.get(&range.last_port);
-            if first_alias == last_alias {
-                first_alias.and_then(|s| s.clone()).unwrap_or_default()
-            } else {
-                format!("{}-{}", 
-                    first_alias.and_then(|s| s.as_deref()).unwrap_or(""),
-                    last_alias.and_then(|s| s.as_deref()).unwrap_or(""))
-            }
-        };
+        let alias = range.alias.as_deref().unwrap_or_default();
 
         // VLAN information
         let mut vlan_info = Vec::new();

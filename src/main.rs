@@ -36,11 +36,17 @@ pub struct PortConfig {
     lacp_info: Option<LacpInfo>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct LacpInfo {
     selected_agg_id: u32,
     agg_name: Option<String>,
     agg_vlans: Option<(HashSet<u32>, HashSet<u32>)>, // (tagged, untagged)
+}
+
+#[derive(Debug)]
+struct LacpOverride {
+    source_interface: u32,
+    target_ports: Vec<u32>,
 }
 
 #[derive(Parser, Debug)]
@@ -65,34 +71,69 @@ struct Args {
     /// Output format (markdown or html)
     #[arg(short, long, default_value = "markdown")]
     format: String,
+
+    /// Override LACP information. Format: source_interface:target_ports
+    /// Example: 26:21,22
+    #[arg(long)]
+    override_lacp: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct PortRange {
     first_port: u32,
     last_port: u32,
-    description: String,
+    alias: Option<String>,
     pvid: u32,
     vlan_memberships: HashSet<u32>,
     untagged_vlans: HashSet<u32>,
     lacp_info: Option<LacpInfo>,
 }
 
-fn is_physical_port(port_type: u32, ip: &str) -> bool {
-    // Keep all ports on toimisto-sw
-    if ip.contains("toimisto-sw") {
-        return true;
-    }
-
+fn is_physical_port(port_type: u32, _ip: &str) -> bool {
     // For other switches, only keep 100M and 1G ports
     // ifType 6 = ethernetCsmacd (100M)
     // ifType 117 = gigabitEthernet (1G)
     port_type == 6 || port_type == 117
 }
 
+fn parse_lacp_override(override_str: &str) -> Result<LacpOverride, String> {
+    let parts: Vec<&str> = override_str.split(':').collect();
+    if parts.len() != 2 {
+        return Err("Invalid format. Expected: source_interface:target_ports".to_string());
+    }
+
+    let source_interface = parts[0].parse::<u32>()
+        .map_err(|e| format!("Invalid source interface number: {}", e))?;
+    
+    let target_ports: Vec<u32> = parts[1].split(',')
+        .map(|p| p.parse::<u32>())
+        .collect::<Result<Vec<u32>, _>>()
+        .map_err(|e| format!("Invalid target port number: {}", e))?;
+
+    Ok(LacpOverride {
+        source_interface,
+        target_ports,
+    })
+}
+
+fn port_in_list(port_num: u32, ports_data: &[u8]) -> bool {
+    decode_port_list(ports_data)
+        .split(", ")
+        .any(|p| p.parse::<u32>().map_or(false, |p| p == port_num))
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let timeout = Duration::from_secs(args.timeout);
+    
+    // Parse LACP overrides
+    let mut lacp_overrides = Vec::new();
+    for override_str in &args.override_lacp {
+        match parse_lacp_override(override_str) {
+            Ok(override_info) => lacp_overrides.push(override_info),
+            Err(e) => eprintln!("Warning: Invalid LACP override '{}': {}", override_str, e),
+        }
+    }
     
     // Validate IP address and construct agent address
     let agent_addr = format!("{}:161", args.ip);
@@ -106,15 +147,13 @@ fn main() -> Result<()> {
     let port_descriptions = get_string_table(&mut sess, IF_DESCR)?;
     let port_names = get_string_table(&mut sess, IF_NAME)?;
     let port_types = get_u32_table(&mut sess, IF_TYPE)?;
-    let port_aliases = if !args.ignore_alias { 
-        if let Ok(aliases) = get_string_table(&mut sess, IF_ALIAS) {
-            aliases.into_iter().map(|(k, v)| (k, Some(v))).collect()
-        } else {
-            port_names.into_iter().map(|(k, v)| (k, Some(v))).collect()
-        }
-    } else { 
-        HashMap::new() 
+    let aliases = get_string_table(&mut sess, IF_ALIAS)?;
+    let port_aliases: HashMap<u32, String> = if !aliases.is_empty() {
+        aliases
+    } else {
+        port_names
     };
+
     let vlan_names = get_string_table(&mut sess, VLAN_STATIC_NAME)?;
     let vlan_egress_ports = get_raw_table(&mut sess, VLAN_STATIC_EGRESS_PORTS)?;
     let vlan_untagged_ports = get_raw_table(&mut sess, VLAN_STATIC_UNTAGGED_PORTS)?;
@@ -133,16 +172,14 @@ fn main() -> Result<()> {
             
             // Check VLAN memberships for the LACP interface using the LAG interface number
             for (vlan_id, ports_data) in &vlan_egress_ports {
-                let port_list = decode_port_list(ports_data);
-                if port_list.split(", ").any(|p| p.parse::<u32>().map_or(false, |p| p == *agg_id)) {
+                if port_in_list(*agg_id, ports_data) {
                     tagged.insert(*vlan_id);
                 }
             }
 
             // Check untagged VLANs for the LACP interface using the LAG interface number
             for (vlan_id, ports_data) in &vlan_untagged_ports {
-                let port_list = decode_port_list(ports_data);
-                if port_list.split(", ").any(|p| p.parse::<u32>().map_or(false, |p| p == *agg_id)) {
+                if port_in_list(*agg_id, ports_data) {
                     untagged.insert(*vlan_id);
                 }
             }
@@ -167,7 +204,7 @@ fn main() -> Result<()> {
             continue;
         }
         
-        let alias = port_aliases.get(&port_num).cloned().flatten();
+        let alias = port_aliases.get(&port_num).cloned();
         let pvid = port_vlans.get(&port_num)
             .copied()
             .unwrap_or(0);
@@ -177,16 +214,14 @@ fn main() -> Result<()> {
 
         // Add VLAN memberships
         for (vlan_id, ports_data) in &vlan_egress_ports {
-            let port_list = decode_port_list(ports_data);
-            if port_list.split(", ").any(|p| p.parse::<u32>().map_or(false, |p| p == port_num)) {
+            if port_in_list(port_num, ports_data) {
                 vlan_memberships.insert(*vlan_id);
             }
         }
 
         // Add untagged VLANs
         for (vlan_id, ports_data) in &vlan_untagged_ports {
-            let port_list = decode_port_list(ports_data);
-            if port_list.split(", ").any(|p| p.parse::<u32>().map_or(false, |p| p == port_num)) {
+            if port_in_list(port_num, ports_data) {
                 untagged_vlans.insert(*vlan_id);
             }
         }
@@ -208,14 +243,6 @@ fn main() -> Result<()> {
             None
         };
 
-        // If this port is part of an LACP trunk with VLAN info, use that instead
-        if let Some(lacp_info) = &lacp_info {
-            if let Some((tagged, untagged)) = &lacp_info.agg_vlans {
-                vlan_memberships = tagged.clone();
-                untagged_vlans = untagged.clone();
-            }
-        }
-
         port_configs.push(PortConfig {
             port_num,
             description,
@@ -225,6 +252,49 @@ fn main() -> Result<()> {
             untagged_vlans,
             lacp_info,
         });
+    }
+
+    // Apply LACP overrides
+    for override_info in &lacp_overrides {
+        // Get VLAN information for the source interface
+        let mut tagged_vlans = HashSet::new();
+        let mut untagged_vlans = HashSet::new();
+
+        // Check tagged VLANs
+        for (vlan_id, ports) in &vlan_egress_ports {
+            if port_in_list(override_info.source_interface, ports) {
+                tagged_vlans.insert(*vlan_id);
+            }
+        }
+
+        // Check untagged VLANs
+        for (vlan_id, ports) in &vlan_untagged_ports {
+            if port_in_list(override_info.source_interface, ports) {
+                untagged_vlans.insert(*vlan_id);
+            }
+        }
+
+        // Apply to all target ports
+        for target_port in &override_info.target_ports {
+            if let Some(port_config) = port_configs.iter_mut().find(|p| p.port_num == *target_port) {
+                port_config.alias = port_aliases.get(&override_info.source_interface).cloned();
+                port_config.lacp_info = Some(LacpInfo {
+                    selected_agg_id: override_info.source_interface,
+                    agg_name: Some(format!("Trk{}", override_info.source_interface)),
+                    agg_vlans: Some((tagged_vlans.clone(), untagged_vlans.clone())),
+                });
+            }
+        }
+    }
+
+    // Update VLAN memberships based on LACP info
+    for port_config in &mut port_configs {
+        if let Some(lacp_info) = &port_config.lacp_info {
+            if let Some((tagged, untagged)) = &lacp_info.agg_vlans {
+                port_config.vlan_memberships = tagged.clone();
+                port_config.untagged_vlans = untagged.clone();
+            }
+        }
     }
 
     // Sort by port number to ensure ranges are contiguous
@@ -258,7 +328,7 @@ fn main() -> Result<()> {
                         port_ranges.push(PortRange {
                             first_port: current_start,
                             last_port: current_end,
-                            description: current.description,
+                            alias: current.alias,
                             pvid: current.pvid,
                             vlan_memberships: current.vlan_memberships,
                             untagged_vlans: current.untagged_vlans,
@@ -283,7 +353,7 @@ fn main() -> Result<()> {
         port_ranges.push(PortRange {
             first_port: current_start,
             last_port: current_end,
-            description: current.description,
+            alias: current.alias,
             pvid: current.pvid,
             vlan_memberships: current.vlan_memberships,
             untagged_vlans: current.untagged_vlans,
@@ -302,11 +372,11 @@ fn main() -> Result<()> {
     };
 
     let output = match output_format {
-        OutputFormat::Html => generate_port_table(&port_ranges, &port_aliases, &vlan_names, output_format, &args.ip),
+        OutputFormat::Html => generate_port_table(&port_ranges, &vlan_names, output_format, &args.ip),
         OutputFormat::Markdown => {
             let mut output = String::new();
             output.push_str("\nPort Information Table:\n");
-            output.push_str(&generate_port_table(&port_ranges, &port_aliases, &vlan_names, output_format, ""));
+            output.push_str(&generate_port_table(&port_ranges, &vlan_names, output_format, ""));
             output
         }
     };

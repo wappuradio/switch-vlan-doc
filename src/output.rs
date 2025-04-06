@@ -8,20 +8,18 @@ pub enum OutputFormat {
 
 pub fn generate_port_table(
     port_ranges: &[PortRange],
-    port_aliases: &HashMap<u32, Option<String>>,
     vlan_names: &HashMap<u32, String>,
     format: OutputFormat,
     ip_address: &str,
 ) -> String {
     match format {
-        OutputFormat::Markdown => generate_markdown_table(port_ranges, port_aliases, vlan_names),
-        OutputFormat::Html => crate::html_output::generate_port_table(port_ranges, port_aliases, vlan_names, ip_address),
+        OutputFormat::Markdown => generate_markdown_table(port_ranges, vlan_names),
+        OutputFormat::Html => crate::html_output::generate_port_table(port_ranges, vlan_names, ip_address),
     }
 }
 
 fn generate_markdown_table(
     port_ranges: &[PortRange],
-    port_aliases: &HashMap<u32, Option<String>>,
     vlan_names: &HashMap<u32, String>,
 ) -> String {
     let mut table = String::new();
@@ -43,21 +41,7 @@ fn generate_markdown_table(
         };
 
         // Alias (if available)
-        let alias = if range.first_port == range.last_port {
-            port_aliases.get(&range.first_port)
-                .and_then(|s| s.clone())
-                .unwrap_or_default()
-        } else {
-            let first_alias = port_aliases.get(&range.first_port);
-            let last_alias = port_aliases.get(&range.last_port);
-            if first_alias == last_alias {
-                first_alias.and_then(|s| s.clone()).unwrap_or_default()
-            } else {
-                format!("{}-{}", 
-                    first_alias.and_then(|s| s.as_deref()).unwrap_or(""),
-                    last_alias.and_then(|s| s.as_deref()).unwrap_or(""))
-            }
-        };
+        let alias = range.alias.as_deref().unwrap_or_default();
 
         // VLAN information
         let mut vlan_info = Vec::new();
