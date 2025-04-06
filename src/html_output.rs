@@ -138,15 +138,7 @@ pub fn generate_port_table(
         };
 
         // Alias (if available)
-        let alias = if let Some(alias_str) = range.alias.as_deref() {
-            if alias_str == port {
-                String::new()
-            } else {
-                alias_str.to_string()
-            }
-        } else {
-            String::new()
-        };
+        let alias = range.alias.as_deref().unwrap_or_default();
 
         // VLAN information
         let mut vlan_info = Vec::new();

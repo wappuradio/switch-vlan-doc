@@ -16,7 +16,6 @@ const PORT_VLAN_TABLE: &[u32] = &[1,3,6,1,2,1,17,7,1,4,5,1,1];  // dot1qPvid
 
 // IF-MIB OIDs
 const IF_INDEX: &[u32] = &[1,3,6,1,2,1,2,2,1,1];  // ifIndex
-const IF_DESCR: &[u32] = &[1,3,6,1,2,1,2,2,1,2];  // ifDescr
 const IF_ALIAS: &[u32] = &[1,3,6,1,2,1,31,1,1,1,18];  // ifAlias
 const IF_NAME: &[u32] = &[1,3,6,1,2,1,31,1,1,1,1];  // ifName
 const IF_TYPE: &[u32] = &[1,3,6,1,2,1,2,2,1,3];  // ifType
@@ -28,7 +27,6 @@ const LAG_AGG_NAME: &[u32] = &[1,3,6,1,2,1,31,1,1,1,1];  // ifName for LACP inte
 #[derive(Debug, PartialEq, Eq)]
 pub struct PortConfig {
     port_num: u32,
-    description: String,
     alias: Option<String>,
     pvid: u32,
     vlan_memberships: HashSet<u32>,
@@ -144,7 +142,6 @@ fn main() -> Result<()> {
 
     // Get all tables first
     let port_indices = get_u32_table(&mut sess, IF_INDEX)?;
-    let port_descriptions = get_string_table(&mut sess, IF_DESCR)?;
     let port_names = get_string_table(&mut sess, IF_NAME)?;
     let port_types = get_u32_table(&mut sess, IF_TYPE)?;
     let aliases = get_string_table(&mut sess, IF_ALIAS)?;
@@ -194,17 +191,17 @@ fn main() -> Result<()> {
     let mut port_configs: Vec<PortConfig> = Vec::new();
 
     for port_num in port_indices.into_values() {
-        let description = port_descriptions.get(&port_num)
-            .cloned()
-            .unwrap_or_default();
-        
         // Skip non-physical ports based on ifType
         let port_type = port_types.get(&port_num).copied().unwrap_or(0);
         if !is_physical_port(port_type, &args.ip) {
             continue;
         }
         
-        let alias = port_aliases.get(&port_num).cloned();
+        // Only use alias if it's not just the port number
+        let alias = port_aliases.get(&port_num)
+            .filter(|&a| a != &port_num.to_string())
+            .cloned();
+
         let pvid = port_vlans.get(&port_num)
             .copied()
             .unwrap_or(0);
@@ -245,7 +242,6 @@ fn main() -> Result<()> {
 
         port_configs.push(PortConfig {
             port_num,
-            description,
             alias,
             pvid,
             vlan_memberships,
