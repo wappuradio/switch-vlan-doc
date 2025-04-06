@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use crate::PortRange;
+use chrono::Local;
 
 pub enum OutputFormat {
     Markdown,
@@ -23,6 +24,10 @@ fn generate_markdown_table(
     vlan_names: &HashMap<u32, String>,
 ) -> String {
     let mut table = String::new();
+    
+    // Add timestamp
+    let now = Local::now();
+    table.push_str(&format!("Generated on: {}\n\n", now.format("%Y-%m-%d %H:%M:%S")));
     
     // Header
     table.push_str("| Port | Alias | VLAN(s) | LACP |\n");

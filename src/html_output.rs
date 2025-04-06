@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use crate::PortRange;
+use chrono::Local;
 
 pub fn generate_port_table(
     port_ranges: &[PortRange],
@@ -30,6 +31,11 @@ pub fn generate_port_table(
         margin: 5px 0 0;
         color: #666;
         font-size: 18px;
+    }
+    .generated-time {
+        color: #666;
+        font-size: 14px;
+        margin-bottom: 20px;
     }
     .port-table {
         border-collapse: collapse;
@@ -113,7 +119,11 @@ pub fn generate_port_table(
 
     table.push_str(ip_address);
     table.push_str(r#"</h2>
-</div>
+    <div class="generated-time">Generated on: "#);
+
+    let now = Local::now();
+    table.push_str(&format!("{}</div>", now.format("%Y-%m-%d %H:%M:%S")));
+    table.push_str(r#"</div>
 <table class="port-table">
     <thead>
         <tr>
