@@ -41,7 +41,15 @@ fn generate_markdown_table(
         };
 
         // Alias (if available)
-        let alias = range.alias.as_deref().unwrap_or_default();
+        let alias = if let Some(alias_str) = range.alias.as_deref() {
+            if alias_str == port {
+                String::new()
+            } else {
+                alias_str.to_string()
+            }
+        } else {
+            String::new()
+        };
 
         // VLAN information
         let mut vlan_info = Vec::new();
